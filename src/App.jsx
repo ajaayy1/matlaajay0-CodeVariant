@@ -523,7 +523,7 @@ function Home({ activity, onActivity, go, openDetail, spaces, onStartGuided, onO
                   {p.liveStatus && (
                     <div className="live-meter-badge">
                       <span className="live-pulse"></span>
-                      <span>{p.liveStatus.freeDesks} seats free • {p.liveStatus.noiseDb} dB</span>
+                      <span>{p.liveStatus.freeDesks} seats free</span>
                     </div>
                   )}
                 </div>
@@ -1492,10 +1492,7 @@ function NavigatorModal({ place, origin, hasUserLocation, onClose, onBookDesk })
                     <span>Occupancy:</span>
                     <strong>{place.liveStatus.occupancy}% ({place.liveStatus.freeDesks} seats free)</strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '0.86rem' }}>
-                    <span>Acoustic Noise:</span>
-                    <strong>{place.liveStatus.noiseDb} dB ({place.liveStatus.noiseDesc})</strong>
-                  </div>
+                 
                 </div>
               )}
             </div>
