@@ -616,11 +616,12 @@ function Step01Preferences({ activity, onActivity, form, onFormChange, onNext, o
             {ACTIVITIES.map(a => {
               const selected = a.id === activity;
               return (
-                <button
+                <CanvasAction
                   key={a.id}
+                  actionType="focus"
+                  label={`Select ${a.label}`}
                   className={`pref-activity-card ${selected ? 'active' : ''}`}
-                  onClick={() => onActivity(a.id)}
-                  type="button"
+                  onAction={() => onActivity(a.id)}
                 >
                   <div className="pref-check-circle">{selected ? '✓' : '○'}</div>
                   <div className="pref-activity-card-info">
@@ -628,7 +629,7 @@ function Step01Preferences({ activity, onActivity, form, onFormChange, onNext, o
                     <small>{a.shortDesc}</small>
                   </div>
                   <span className="pref-arrow">{selected ? '✓' : '→'}</span>
-                </button>
+                </CanvasAction>
               );
             })}
           </div>
@@ -811,7 +812,7 @@ function Step02Results({
                 {place.liveStatus && (
                   <div className="live-meter-badge">
                     <span className="live-pulse"></span>
-                    <span>{place.liveStatus.freeDesks} seats (sample) • {place.liveStatus.noiseDb} dB</span>
+                    <span>{place.liveStatus.freeDesks} seats (sample) • {place.liveStatus.noiseDesc}</span>
                   </div>
                 )}
               </div>
@@ -1257,7 +1258,7 @@ function ExploreSpaces({
                     {place.liveStatus && (
                       <div className="live-meter-badge">
                         <span className="live-pulse"></span>
-                        <span>{place.liveStatus.freeDesks} seats (sample) • {place.liveStatus.noiseDb} dB ({place.liveStatus.noiseDesc})</span>
+                        <span>{place.liveStatus.freeDesks} seats (sample) • {place.liveStatus.noiseDesc}</span>
                       </div>
                     )}
 
@@ -1671,7 +1672,7 @@ function BookingModal({ place, onClose, onSaveBooking }) {
             </div>
 
             <div className="notice" style={{ margin: '14px 0' }}>
-              <strong>Instant Guarantee:</strong> Your seat is held for 30 minutes after session start. Free cancellation anytime.
+              <strong>Demo booking:</strong> This is a prototype reservation saved on this device only. The venue is not contacted and no seat is held — please confirm with the venue before visiting.
             </div>
 
             <div className="flex between" style={{ marginTop: '20px' }}>
@@ -1951,7 +1952,7 @@ function DetailView({
               {place.liveStatus && (
                 <div className="live-meter-badge">
                   <span className="live-pulse"></span>
-                  <span>{place.liveStatus.freeDesks} seats (sample) • {place.liveStatus.noiseDb} dB</span>
+                  <span>{place.liveStatus.freeDesks} seats (sample) • {place.liveStatus.noiseDesc}</span>
                 </div>
               )}
             </div>

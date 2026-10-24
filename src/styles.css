@@ -2301,3 +2301,21 @@ html { scroll-padding-bottom: calc(var(--dock-clearance, 128px) + var(--compare-
 body { padding-bottom: calc(var(--dock-clearance, 128px) + var(--compare-h, 0px) + 20px) !important; }
 .compare-board-scroll { max-height: min(34vh, 330px); }
 @media (max-width: 600px) { .compare-board-scroll { max-height: 30vh; } }
+
+/* Preferences activity cards as Canvas drag tokens: keep the row layout */
+.pref-activity-card.canvas-action {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  cursor: grab;
+}
+.pref-activity-card .canvas-action-label {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+}
+.pref-activity-card .canvas-drag-hint {
+  align-self: flex-end;
+}
