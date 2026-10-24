@@ -2331,6 +2331,123 @@ function SavedSpaces({ ids, places, onDetail, onFavorite, goExplore, onBookDesk,
   );
 }
 
+
+/* -------------------------------------------------------------
+ * Compare Board — appears on every page once spaces are dragged
+ * into the Compare zone. Results show automatically at 2+ spaces.
+ * ------------------------------------------------------------- */
+const COMPARE_ROWS = [
+  { label: 'WorkFit', value: p => (p.status === 'eligible' ? `${p.score.toFixed(1)}/10` : p.tier), rank: p => (p.status === 'eligible' ? p.score : null), best: 'max' },
+  { label: 'Price', value: p => money(p.cost), rank: p => p.cost, best: 'min' },
+  { label: 'Quietness', value: p => (p.quiet == null ? 'Unknown' : `${p.quiet}/100`), rank: p => p.quiet, best: 'max' },
+  { label: 'Wi-Fi', value: p => (p.wifi == null ? 'Unknown' : `${p.wifi}/100`), rank: p => p.wifi, best: 'max' },
+  { label: 'Charging', value: p => (p.charging ? 'Yes' : 'No') },
+  { label: 'Calls allowed', value: p => (p.calls ? 'Yes' : 'No') },
+  { label: 'Group friendly', value: p => (p.group ? 'Yes' : 'No') },
+  { label: 'Area', value: p => p.area },
+];
+
+function bestIds(row, items) {
+  if (!row.rank) return [];
+  const ranked = items.map(p => [p.id, row.rank(p)]).filter(([, v]) => v != null);
+  if (ranked.length < 2) return [];
+  const target = row.best === 'max' ? Math.max(...ranked.map(r => r[1])) : Math.min(...ranked.map(r => r[1]));
+  const winners = ranked.filter(r => r[1] === target).map(r => r[0]);
+  return winners.length === ranked.length ? [] : winners;
+}
+
+function CompareBoard({ places, ids, open, onToggleOpen, onRemove, onClear, onDetail }) {
+  const items = ids.map(id => places.find(p => p.id === id)).filter(Boolean);
+  const boardRef = useRef(null);
+  // Reserve page space for the board so cards underneath stay reachable.
+  useEffect(() => {
+    const root = document.documentElement;
+    const el = boardRef.current;
+    if (!el) { root.style.setProperty('--compare-h', '0px'); return undefined; }
+    const update = () => root.style.setProperty('--compare-h', `${Math.ceil(el.getBoundingClientRect().height) + 12}px`);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => { ro.disconnect(); root.style.setProperty('--compare-h', '0px'); };
+  }, [items.length, open]);
+  if (!items.length) return null;
+  const ready = items.length >= 2;
+  const wins = Object.fromEntries(items.map(p => [p.id, 0]));
+  const rowBest = COMPARE_ROWS.map(row => {
+    const b = bestIds(row, items);
+    b.forEach(id => { wins[id] += 1; });
+    return b;
+  });
+  const leader = ready ? items.reduce((a, b) => (wins[b.id] > wins[a.id] ? b : a)) : null;
+
+  return (
+    <section ref={boardRef} className={`compare-board ${open ? 'is-open' : ''}`} aria-label="Comparison board" aria-live="polite">
+      <div className="compare-board-head">
+        <div>
+          <strong>{ready ? `Comparing ${items.length} spaces` : 'Comparison started'}</strong>
+          <span>
+            {ready
+              ? leader && wins[leader.id] > 0
+                ? `${leader.name} leads on ${wins[leader.id]} of 4 measurable criteria.`
+                : 'These spaces tie on the measurable criteria.'
+              : `Drag one more workspace to Compare to see results. (${items.length}/3)`}
+          </span>
+        </div>
+        <button type="button" className="compare-board-toggle" onClick={onToggleOpen} aria-expanded={open}>
+          {open ? 'Minimise ▾' : 'Show board ▴'}
+        </button>
+      </div>
+
+      {open && (
+        <div className="compare-board-body">
+          <div className="compare-board-scroll">
+            <table className="compare-board-table">
+              <thead>
+                <tr>
+                  <th scope="col" className="compare-board-corner">Drag a card to Remove to take it off</th>
+                  {items.map(p => (
+                    <th scope="col" key={p.id}>
+                      <CanvasPlaceToken place={p} onRemove={() => onRemove(p.id)} className="compare-board-token" />
+                      <button type="button" className="text-button compare-board-detail" onClick={() => onDetail(p.id)}>View details</button>
+                    </th>
+                  ))}
+                  {items.length < 3 && (
+                    <th scope="col" className="compare-board-empty">
+                      <span>Drag {ready ? 'a third' : 'another'} space to Compare</span>
+                    </th>
+                  )}
+                </tr>
+              </thead>
+              {ready && (
+                <tbody>
+                  {COMPARE_ROWS.map((row, i) => (
+                    <tr key={row.label}>
+                      <th scope="row">{row.label}</th>
+                      {items.map(p => (
+                        <td key={p.id} className={rowBest[i].includes(p.id) ? 'is-best' : ''}>
+                          {row.value(p)}
+                          {rowBest[i].includes(p.id) && <span className="compare-best-tag">Best</span>}
+                        </td>
+                      ))}
+                      {items.length < 3 && <td className="compare-board-empty" />}
+                    </tr>
+                  ))}
+                </tbody>
+              )}
+            </table>
+          </div>
+          <div className="compare-board-foot">
+            <span className="tiny">Scores follow your selected activity. Venue data is illustrative demo data.</span>
+            <CanvasAction actionType="remove" label="Clear comparison" onAction={onClear} className="btn btn-outline btn-sm">
+              Clear comparison
+            </CanvasAction>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 /* -------------------------------------------------------------
  * User Profile Modal (Team Matla Presentation Info)
  * ------------------------------------------------------------- */
@@ -2418,6 +2535,7 @@ export default function App() {
   const [galleryState, setGalleryState] = useState(null);
 
   // Compute recommendations
+  const [compareBoardOpen, setCompareBoardOpen] = useState(true);
   const places = useMemo(() => {
     return recommendSpaces(dynamicSpaces, { ...form, activity });
   }, [dynamicSpaces, form, activity]);
@@ -2458,14 +2576,11 @@ export default function App() {
   }
 
   function toggleCompare(id) {
-    setCompareList(prev => {
-      if (prev.includes(id)) return prev.filter(x => x !== id);
-      if (prev.length >= 3) {
-        alert('You can compare up to three workspaces side-by-side.');
-        return prev;
-      }
-      return [...prev, id];
-    });
+    if (!compareList.includes(id) && compareList.length >= 3) {
+      throw new Error('the board holds 3 spaces. Drag one from the board to Remove first');
+    }
+    setCompareBoardOpen(true);
+    setCompareList(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id].slice(0, 3)));
   }
 
   function toggleFavorite(id) {
@@ -2654,6 +2769,8 @@ export default function App() {
           onBookDesk={place => setBookingPlace(place)}
           onOpenNavigator={place => setNavigatorPlace(place)}
           onOpenGallery={openGallery}
+          compareList={compareList}
+          onCompare={toggleCompare}
         />
       )}
 
@@ -2712,6 +2829,16 @@ export default function App() {
           onUpdateStatus={handleUpdateStatus}
         />
       )}
+
+      <CompareBoard
+        places={places}
+        ids={compareList}
+        open={compareBoardOpen}
+        onToggleOpen={() => setCompareBoardOpen(v => !v)}
+        onRemove={id => setCompareList(prev => prev.filter(x => x !== id))}
+        onClear={() => setCompareList([])}
+        onDetail={id => setDetailId(id)}
+      />
 
       {/* My Bookings Modal */}
       {showBookingsModal && (
