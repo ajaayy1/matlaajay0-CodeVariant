@@ -1,0 +1,59 @@
+/* The Quiet Place — Canvas Protocol surprise-challenge interface */
+:root { --canvas-forest: #173c38; --canvas-sage: #dcebe2; }
+body { padding-bottom: 154px !important; }
+.canvas-dock {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 999999;
+  padding: 9px max(14px, calc((100vw - 1320px) / 2));
+  background: rgba(249, 250, 247, .98);
+  backdrop-filter: blur(15px);
+  border-top: 2px solid #bbd2c3;
+  box-shadow: 0 -12px 32px rgba(20, 50, 45, .12);
+  color: var(--canvas-forest);
+}
+.canvas-dock-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; font-size: 11px; letter-spacing: .055em; }
+.canvas-dock-head span { color: #66786e; letter-spacing: 0; font-weight: 500; }
+.canvas-dock-zones { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 7px; }
+.canvas-zone {
+  min-width: 0; min-height: 57px; cursor: copy;
+  border: 1.5px dashed #93b29f; border-radius: 11px; background: #f0f6ef;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  transition: background .12s, border-color .12s, transform .12s;
+}
+.canvas-zone-icon { font-size: 18px; line-height: 1; }
+.canvas-zone-name { font-size: 10px; font-weight: 800; letter-spacing: .05em; }
+.canvas-zone-ready { background: #e1f3e7; border: 2px dashed #308a58; }
+.canvas-zone-over { background: #c8e9d3; border: 2px solid #217347; transform: translateY(-3px); }
+.canvas-zone-dim { opacity: .40; }
+.canvas-dock-status { min-height: 15px; font-size: 10px; color: #5c6f65; margin-top: 4px; text-align: center; }
+.canvas-draggable { cursor: grab !important; user-select: none; -webkit-user-select: none; touch-action: none; }
+.canvas-draggable:active { cursor: grabbing !important; }
+.canvas-draggable:focus-visible, .canvas-zone:focus-visible { outline: 3px solid #d5a05c; outline-offset: 3px; }
+.canvas-action { display: inline-flex; flex-direction: column; justify-content: center; align-items: center; gap: 3px; vertical-align: middle; white-space: normal; }
+.canvas-action .canvas-action-label { font-weight: inherit; }
+.canvas-drag-hint { display: block; font-size: 10px; line-height: 1.1; letter-spacing: .02em; font-weight: 600; opacity: .72; }
+.canvas-disabled { opacity: .4; cursor: not-allowed !important; }
+.canvas-place-card {
+  display: flex; align-items: center; gap: 10px;
+  background: #f0f7f2; border: 1.5px dashed #83ab94; border-radius: 12px;
+  padding: 9px 12px; margin: 9px 0; color: var(--canvas-forest);
+  box-shadow: 0 3px 10px rgba(20, 60, 40, .04);
+}
+.canvas-place-card:hover { background: #e5f2e8; border-color: #2f8654; }
+.canvas-place-grip { font-size: 25px; line-height: 1; color: #418562; }
+.canvas-place-card div { min-width: 0; flex: 1; }
+.canvas-place-card strong { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-place-card small { display: block; font-size: 11px; color: #577365; margin-top: 2px; }
+.canvas-place-tag { font-size: 9px; font-weight: 800; letter-spacing: .04em; white-space: nowrap; }
+.canvas-mini-compare { overflow-x: auto; border: 1px solid #d2e1d5; border-radius: 12px; background: white; margin: 18px 0; padding: 15px; }
+.canvas-mini-compare table { width: 100%; border-collapse: collapse; min-width: 500px; }
+.canvas-mini-compare th, .canvas-mini-compare td { font-size: 12px; padding: 8px; text-align: left; border-bottom: 1px solid #e3eae3; }
+@media (max-width: 750px) {
+  body { padding-bottom: 182px !important; }
+  .canvas-dock { padding: 7px 8px; }
+  .canvas-dock-zones { grid-template-columns: repeat(4, minmax(0,1fr)); gap: 4px; }
+  .canvas-zone { min-height: 45px; }
+  .canvas-zone-icon { font-size: 15px; }
+  .canvas-zone-name { font-size: 8px; }
+  .canvas-dock-head, .canvas-dock-status { font-size: 9px; }
+  .canvas-place-tag { display: none; }
+}

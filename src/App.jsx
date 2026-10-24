@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { CanvasAction, CanvasPlaceToken, canvasZoneForLabel } from './components/CanvasProtocol.jsx';
 import { ACTIVITIES, SPACES, DEMO_ORIGIN } from './data/demoSpaces.js';
 import { recommendSpaces, haversineKm, directionsUrl } from './lib/workfit.js';
 
@@ -9,12 +10,31 @@ function Badge({ children, tone = 'neutral' }) {
   return <span className={`badge badge-${tone}`}>{children}</span>;
 }
 
+function buttonText(children) {
+  if (typeof children === 'string' || typeof children === 'number') return String(children);
+  if (Array.isArray(children)) return children.map(buttonText).join(' ');
+  if (React.isValidElement(children)) return buttonText(children.props.children);
+  return '';
+}
+
 function Button({ children, variant = 'solid', className = '', ...props }) {
-  return (
-    <button className={`btn btn-${variant} ${className}`} {...props}>
-      {children}
-    </button>
-  );
+  const { onClick, type, ...rest } = props;
+  const zone = canvasZoneForLabel(buttonText(children));
+  if (zone && (typeof onClick === 'function' || type === 'submit')) {
+    return (
+      <CanvasAction
+        actionType={zone}
+        label={buttonText(children)}
+        onAction={onClick}
+        type={type}
+        className={`btn btn-${variant} ${className}`}
+        {...rest}
+      >
+        {children}
+      </CanvasAction>
+    );
+  }
+  return <button className={`btn btn-${variant} ${className}`} onClick={onClick} type={type} {...rest}>{children}</button>;
 }
 
 function StatusBadge({ place }) {
@@ -272,9 +292,10 @@ function Nav({ page, setPage, activeCount, bookingCount, onOpenProfile, onOpenBo
 /* -------------------------------------------------------------
  * Screen: Home (Matching Slide 1 & 2)
  * ------------------------------------------------------------- */
-function Home({ activity, onActivity, go, openDetail, spaces, onStartGuided, onOpenNavigator, onOpenGallery }) {
+function Home({ activity, onActivity, go, openDetail, spaces, onStartGuided, onOpenNavigator, onOpenGallery, onSearch, onFavorite, onCompare, onBookDesk, favorites }) {
   const [problemTab, setProblemTab] = useState('interview');
   const [heroBg, setHeroBg] = useState('panoramic');
+  const [homeQuery, setHomeQuery] = useState(''); // tqp-search-upgrade
 
   const heroBackgrounds = {
     panoramic: { label: '🌿 Biophilic Workspace', url: '/images/hero-panoramic.jpg' },
@@ -303,6 +324,19 @@ function Home({ activity, onActivity, go, openDetail, spaces, onStartGuided, onO
               Discover quiet, comfortable and suitable spaces on campus and across Hyderabad —
               matched to your activity, preferences and requirements.
             </p>
+
+            <div className="hero-search" role="search">
+              <label className="visually-hidden" htmlFor="home-search-input">Search workspaces</label>
+              <span aria-hidden="true" className="hero-search-icon">⌕</span>
+              <input
+                id="home-search-input"
+                type="search"
+                value={homeQuery}
+                onChange={event => setHomeQuery(event.target.value)}
+                placeholder="Search by workspace, area or category..."
+              />
+              <CanvasAction actionType="discover" label="Search Spaces" onAction={() => onSearch(homeQuery.trim())}>Search Spaces →</CanvasAction>
+            </div>
 
             <div className="hero-vibe-bar">
               <span className="hero-vibe-label">Background Ambience:</span>
@@ -341,16 +375,17 @@ function Home({ activity, onActivity, go, openDetail, spaces, onStartGuided, onO
 
           <div className="activity-row">
             {ACTIVITIES.map(a => (
-              <button
+              <CanvasAction
                 key={a.id}
+                actionType="focus"
+                label={`Select ${a.label}`}
                 className={`activity-card ${a.id === activity ? 'chosen' : ''}`}
-                onClick={() => onActivity(a.id)}
-                aria-pressed={a.id === activity}
+                onAction={() => onActivity(a.id)}
               >
                 <div className="activity-icon">{a.icon}</div>
                 <strong>{a.label}</strong>
                 <small>{a.shortDesc}</small>
-              </button>
+              </CanvasAction>
             ))}
             <Button onClick={onStartGuided}>Find My Space →</Button>
           </div>
@@ -517,6 +552,13 @@ function Home({ activity, onActivity, go, openDetail, spaces, onStartGuided, onO
                 onDetail={() => openDetail(p.id)}
               />
               <div className="featured-card-body">
+                <CanvasPlaceToken
+                  place={p}
+                  onSave={favorites.includes(p.id) ? undefined : () => onFavorite(p.id)}
+                  onRemove={favorites.includes(p.id) ? () => onFavorite(p.id) : undefined}
+                  onCompare={() => onCompare(p.id)}
+                  onBook={() => onBookDesk(p)}
+                />
                 <div>
                   <strong onClick={() => openDetail(p.id)} style={{ cursor: 'pointer' }}>{p.name}</strong>
                   <p>{p.tagline || `${p.category} · ${money(p.cost)}`}</p>
@@ -762,6 +804,7 @@ function Step02Results({
               onDetail={() => openDetail(place.id)}
             />
             <div className="result-card-v2-main">
+              <CanvasPlaceToken place={place} onBook={() => onBookDesk(place)} />
               <div className="flex gap8">
                 <span className="kind-chip" style={{ position: 'static' }}>{place.type}</span>
                 <StatusBadge place={place} />
@@ -985,10 +1028,11 @@ function ExploreSpaces({
   onBookDesk,
   onOpenNavigator,
   onCheckin,
-  onOpenGallery
+  onOpenGallery,
+  initialQuery = ''
 }) {
   const [view, setView] = useState('list');
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [sort, setSort] = useState('fit');
   const [maxRadiusKm, setMaxRadiusKm] = useState('all');
 
@@ -1188,15 +1232,18 @@ function ExploreSpaces({
                       onOpenGallery={onOpenGallery}
                       onDetail={() => onDetail(place.id)}
                     />
-                    <button
-                      className="heart-chip"
-                      onClick={() => onFavorite(place.id)}
-                      aria-label="Favorite"
-                    >
-                      {favorites.includes(place.id) ? '♥' : '♡'}
-                    </button>
+                    <span className="kind-chip" style={{ position: 'absolute', top: '8px', right: '8px' }}>
+                      {favorites.includes(place.id) ? '♥ Saved' : '⠿ Drag to Save'}
+                    </span>
                   </div>
                   <div className="result-card-v2-main">
+                    <CanvasPlaceToken
+                      place={place}
+                      onSave={favorites.includes(place.id) ? undefined : () => onFavorite(place.id)}
+                      onRemove={favorites.includes(place.id) ? () => onFavorite(place.id) : undefined}
+                      onCompare={() => onCompare(place.id)}
+                      onBook={() => onBookDesk(place)}
+                    />
                     <div className="flex gap8">
                       <span className="kind-chip" style={{ position: 'static' }}>{place.type}</span>
                       <StatusBadge place={place} />
@@ -1237,9 +1284,15 @@ function ExploreSpaces({
                       </Button>
                     </div>
                     <div className="flex gap8">
-                      <button className="text-button" style={{ fontSize: '0.78rem' }} onClick={() => onCheckin(place)}>
+                      <CanvasAction
+                        actionType="publish"
+                        label={`Check in at ${place.name}`}
+                        onAction={() => onCheckin(place)}
+                        className="text-button"
+                        style={{ fontSize: '0.78rem' }}
+                      >
                         📍 Check in
-                      </button>
+                      </CanvasAction>
                       <Button className="btn-sm" onClick={() => onBookDesk(place)}>
                         🎟️ Reserve
                       </Button>
@@ -1252,7 +1305,7 @@ function ExploreSpaces({
             <div className="card" style={{ padding: '40px', textAlign: 'center' }}>
               <h2>No spaces match these filters</h2>
               <p>Try resetting location, increasing distance range, or clearing mandatory conditions.</p>
-              <Button onClick={() => { onFormChange({ category: 'Any', location: 'Both' }); setMaxRadiusKm('all'); }}>
+              <Button onClick={() => { onFormChange({ category: 'Any', location: 'Both' }); setMaxRadiusKm('all'); setQuery(''); }}>
                 Reset Filters
               </Button>
             </div>
@@ -1809,13 +1862,15 @@ function MyBookingsModal({ bookings, onClose, onCancelBooking }) {
                   <span>🪑 {b.deskType}</span>
                 </div>
                 <div style={{ textAlign: 'right', marginTop: '10px' }}>
-                  <button
+                  <CanvasAction
+                    actionType="remove"
+                    label={`Cancel reservation ${b.bookingId}`}
                     className="text-button"
                     style={{ color: '#b85c4d', fontSize: '0.8rem' }}
-                    onClick={() => onCancelBooking(b.bookingId)}
+                    onAction={() => onCancelBooking(b.bookingId)}
                   >
-                    Cancel Reservation
-                  </button>
+                    🧾 {b.bookingId} — drag to cancel
+                  </CanvasAction>
                 </div>
               </div>
             ))}
@@ -1871,11 +1926,17 @@ function DetailView({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
+      <div className="modal-content detail-modal-content" onClick={e => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose} aria-label="Close modal">
           ✕
         </button>
 
+        <CanvasPlaceToken
+          place={place}
+          onSave={isFavorite ? undefined : () => onFavorite(place.id)}
+          onRemove={isFavorite ? () => onFavorite(place.id) : undefined}
+          onBook={() => onBookDesk(place)}
+        />
         <CardPhotoCarousel
           place={place}
           onOpenGallery={onOpenGallery}
@@ -2145,8 +2206,10 @@ function HowItWorks({ go }) {
 /* -------------------------------------------------------------
  * Saved Spaces Shortlist View
  * ------------------------------------------------------------- */
-function SavedSpaces({ ids, places, onDetail, onFavorite, goExplore, onBookDesk, onOpenNavigator, onOpenGallery }) {
+function SavedSpaces({ ids, places, onDetail, onFavorite, goExplore, onBookDesk, onOpenNavigator, onOpenGallery, compareList, onCompare }) {
   const savedPlaces = ids.map(id => places.find(p => p.id === id)).filter(Boolean);
+  const selected = savedPlaces.filter(p => compareList.includes(p.id));
+  const [showComparison, setShowComparison] = useState(false);
 
   return (
     <div className="container page-pad">
@@ -2154,12 +2217,24 @@ function SavedSpaces({ ids, places, onDetail, onFavorite, goExplore, onBookDesk,
         <span className="eyebrow">YOUR SHORTLIST</span>
         <h1>Saved Spaces</h1>
         <p>Workspaces saved in your browser storage for easy comparison.</p>
+        {savedPlaces.length > 0 && (
+          <div className="saved-compare-toolbar">
+            <span>{selected.length}/3 spaces selected · Choose 2 or 3 to compare</span>
+            <Button
+              type="button"
+              disabled={selected.length < 2}
+              onClick={() => setShowComparison(value => !value)}
+            >
+              {showComparison ? 'Hide comparison' : `Compare selected (${selected.length}) →`}
+            </Button>
+          </div>
+        )}
       </div>
 
       {savedPlaces.length === 0 ? (
         <div className="card" style={{ padding: '40px', textAlign: 'center' }}>
           <h2>No saved spaces yet</h2>
-          <p>Click the heart icon on any workspace card to add it to your shortlist.</p>
+          <p>Drag a workspace data card into the SAVE zone to add it to your shortlist.</p>
           <Button onClick={goExplore}>Explore Spaces</Button>
         </div>
       ) : (
@@ -2172,11 +2247,25 @@ function SavedSpaces({ ids, places, onDetail, onFavorite, goExplore, onBookDesk,
                 onDetail={() => onDetail(p.id)}
               />
               <div className="featured-card-body">
+                <CanvasPlaceToken
+                  place={p}
+                  onRemove={() => onFavorite(p.id)}
+                  onCompare={() => onCompare(p.id)}
+                  onBook={() => onBookDesk(p)}
+                />
                 <div>
                   <strong>{p.name}</strong>
                   <p>{p.area} · {money(p.cost)}</p>
                 </div>
-                <div className="flex between" style={{ marginTop: '14px' }}>
+                <CanvasAction
+                  actionType="compare"
+                  label={`Compare ${p.name}`}
+                  className={`saved-compare-toggle ${compareList.includes(p.id) ? 'active' : ''}`}
+                  onAction={() => onCompare(p.id)}
+                >
+                  {compareList.includes(p.id) ? '✓ Selected to compare' : '⠿ Drag to compare'}
+                </CanvasAction>
+                <div className="flex between saved-card-actions" style={{ marginTop: '14px' }}>
                   <Button variant="outline" className="btn-sm" onClick={() => onOpenNavigator(p)}>
                     ⌖ Map
                   </Button>
@@ -2191,6 +2280,52 @@ function SavedSpaces({ ids, places, onDetail, onFavorite, goExplore, onBookDesk,
             </article>
           ))}
         </div>
+      )}
+
+      {showComparison && selected.length >= 2 && (
+        <section className="saved-comparison" aria-label="Saved workspace comparison">
+          <div className="saved-comparison-heading">
+            <h2>Compare your saved workspaces</h2>
+            <button type="button" className="text-button" onClick={() => setShowComparison(false)}>Close comparison ✕</button>
+          </div>
+          <div className="saved-compare-table-scroll">
+            <table className="compare-matrix saved-comparison-table">
+              <thead>
+                <tr>
+                  <th scope="col">Criteria</th>
+                  {selected.map(p => <th scope="col" key={p.id}>{p.name}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ['WorkFit', p => p.status === 'eligible' ? `${p.score.toFixed(1)}/10` : p.tier],
+                  ['Suitability', p => p.tier],
+                  ['Price', p => money(p.cost)],
+                  ['Quietness', p => `${p.quiet ?? 'Unknown'}/100`],
+                  ['Wi-Fi', p => p.wifi == null ? 'Unknown' : `${p.wifi}/100`],
+                  ['Charging points', p => p.charging ? 'Yes' : 'No'],
+                  ['Calls allowed', p => p.calls ? 'Yes' : 'No'],
+                  ['Group friendly', p => p.group ? 'Yes' : 'No'],
+                  ['Location', p => p.area]
+                ].map(([label, getValue]) => (
+                  <tr key={label}>
+                    <th scope="row">{label}</th>
+                    {selected.map(p => <td key={p.id}>{getValue(p)}</td>)}
+                  </tr>
+                ))}
+                <tr>
+                  <th scope="row">Actions</th>
+                  {selected.map(p => (
+                    <td key={p.id}>
+                      <Button variant="outline" className="btn-sm" onClick={() => onDetail(p.id)}>Details</Button>
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="tiny">WorkFit scores change with the selected activity and preferences. Workspace information is illustrative demo data.</p>
+        </section>
       )}
     </div>
   );
@@ -2238,6 +2373,7 @@ export default function App() {
   const [page, setPage] = useState('home');
   const [guidedStep, setGuidedStep] = useState(1);
   const [activity, setActivity] = useState('study');
+  const [exploreQuery, setExploreQuery] = useState('');
 
   const [form, setForm] = useState({
     location: 'Both',
@@ -2358,6 +2494,11 @@ export default function App() {
     setHasUserLocation(false);
   }
 
+  function handleHomepageSearch(searchTerm) {
+    setExploreQuery(searchTerm);
+    setPage('explore');
+  }
+
   function startGuidedWorkflow() {
     setGuidedStep(1);
     setPage('guided');
@@ -2428,6 +2569,11 @@ export default function App() {
           openDetail={id => setDetailId(id)}
           spaces={places}
           onStartGuided={startGuidedWorkflow}
+          onFavorite={toggleFavorite}
+          onCompare={toggleCompare}
+          onBookDesk={place => setBookingPlace(place)}
+          favorites={favorites}
+          onSearch={handleHomepageSearch}
           onOpenNavigator={place => setNavigatorPlace(place)}
           onOpenGallery={openGallery}
         />
@@ -2472,6 +2618,7 @@ export default function App() {
 
       {page === 'explore' && (
         <ExploreSpaces
+          initialQuery={exploreQuery}
           places={places}
           origin={origin}
           hasUserLocation={hasUserLocation}
@@ -2499,12 +2646,16 @@ export default function App() {
         <SavedSpaces
           ids={favorites}
           places={places}
+          compareList={compareList}
+          onCompare={toggleCompare}
           onDetail={id => setDetailId(id)}
           onFavorite={toggleFavorite}
           goExplore={() => setPage('explore')}
           onBookDesk={place => setBookingPlace(place)}
           onOpenNavigator={place => setNavigatorPlace(place)}
           onOpenGallery={openGallery}
+          compareList={compareList}
+          onCompare={toggleCompare}
         />
       )}
 
