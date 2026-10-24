@@ -1,3 +1,4 @@
+import MatcherExperience from "./components/MatcherExperience.jsx";
 import { useState } from "react";
 import "./App.css";
 
@@ -398,7 +399,11 @@ function toggleSaved(id) {
               <button
                 className="find-space-btn"
                 type="button"
-                onClick={() => setShowSelection(true)}
+                onClick={() =>
+                    document.getElementById("matcher")?.scrollIntoView({
+                      behavior: "smooth",
+                    })
+                  }
               >
                 Find My Space →
               </button>
@@ -645,7 +650,9 @@ function toggleSaved(id) {
             and availability are illustrative.
           </p>
         </section>
+        
 
+        <MatcherExperience initialActivity={selectedActivity} />
       </main>
     </div>
   );
