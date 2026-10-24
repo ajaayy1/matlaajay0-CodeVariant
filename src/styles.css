@@ -2250,3 +2250,11 @@ img {
   .saved-comparison { padding: 12px; }
   .gallery-modal-content > div:first-of-type { padding-right: 40px; }
 }
+
+/* Final-round mobile polish */
+@media (max-width: 600px) {
+  .brand small { display: none; }
+  .brand strong { white-space: nowrap; font-size: 1.15rem; }
+  .nav-right .btn-outline:nth-last-child(2) { display: none; }
+  .hero-inner { background: rgba(249, 250, 247, .9); border-radius: 18px; padding: 18px 16px; }
+}

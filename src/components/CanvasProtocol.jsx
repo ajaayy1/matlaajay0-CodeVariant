@@ -2,20 +2,28 @@ import React, { createContext, useCallback, useContext, useEffect, useId, useMem
 import './canvasProtocol.css';
 
 /**
- * Canvas Protocol: actionable data cards can only activate their registered
- * effects after a compatible drop on an action zone. No button-click fallback.
+ * Canvas Protocol: actionable cards can only run their registered effects
+ * after a compatible drop on an Action Zone. There is no click fallback.
+ *
+ * The dock is contextual and magnetic: while a card is held, zones that can
+ * accept it grow and lean toward the pointer; zones that can't, shrink away.
+ * Works with mouse (native DnD), touch/pen (pointer bridge) and keyboard
+ * (pick up with Enter/Space, arrow between zones, Enter to drop, Esc to cancel).
  */
 const CanvasContext = createContext(null);
+const ID_PREFIX = 'tqp-';
 
 export const CANVAS_ZONES = [
-  { id: 'focus', icon: '🎯', title: 'CHOOSE', help: 'Activity card' },
-  { id: 'discover', icon: '🔎', title: 'DISCOVER', help: 'Matcher card' },
-  { id: 'save', icon: '♡', title: 'SAVE', help: 'Workspace card' },
-  { id: 'compare', icon: '⚖', title: 'COMPARE', help: 'Workspace card' },
-  { id: 'book', icon: '🎟', title: 'BOOK', help: 'Workspace / pass' },
-  { id: 'publish', icon: '✎', title: 'PUBLISH', help: 'Review / check-in' },
-  { id: 'remove', icon: '✕', title: 'REMOVE', help: 'Saved / booked card' },
+  { id: 'focus', icon: '🎯', title: 'Choose', verb: 'choose', help: 'Activity card' },
+  { id: 'discover', icon: '🔎', title: 'Discover', verb: 'search with', help: 'Search or matcher card' },
+  { id: 'save', icon: '♡', title: 'Save', verb: 'save', help: 'Workspace card' },
+  { id: 'compare', icon: '⚖', title: 'Compare', verb: 'compare', help: 'Workspace card' },
+  { id: 'book', icon: '🎟', title: 'Book', verb: 'book', help: 'Workspace or pass card' },
+  { id: 'publish', icon: '✎', title: 'Publish', verb: 'publish', help: 'Review or check-in card' },
+  { id: 'remove', icon: '✕', title: 'Remove', verb: 'remove', help: 'Saved or booked card' },
 ];
+const zoneById = id => CANVAS_ZONES.find(zone => zone.id === id);
+const zoneTitles = ids => ids.map(id => zoneById(id)?.title || id).join(' or ');
 
 export function canvasZoneForLabel(value = '') {
   const label = String(value).replace(/\s+/g, ' ').trim().toLowerCase();
@@ -28,101 +36,228 @@ export function canvasZoneForLabel(value = '') {
   return null;
 }
 
+const reduceMotion = () => typeof window !== 'undefined'
+  && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
 export function CanvasProvider({ children }) {
   const registry = useRef(new Map());
+  const zoneRefs = useRef({});
+  const ghostRef = useRef(null);
+  const previewRef = useRef(null);
+  const landedTimer = useRef(null);
   const [dragInfo, setDragInfo] = useState(null);
   const [hoverZone, setHoverZone] = useState(null);
-  const [message, setMessage] = useState('Drag a data card to an Action Zone to perform an action.');
+  const [status, setStatus] = useState({ text: 'Drag any card with a ⠿ grip onto a zone to act on it.', tone: 'idle' });
   const [keyboardCardId, setKeyboardCardId] = useState(null);
+  const [landed, setLanded] = useState(null);
+
+  const setMessage = useCallback((text, tone = 'info') => setStatus({ text, tone }), []);
 
   const register = useCallback((id, record) => {
     registry.current.set(id, record);
     return () => {
-      // Only discard when this instance is still the latest registration.
       if (registry.current.get(id) === record) registry.current.delete(id);
     };
   }, []);
 
+  const flash = useCallback((zoneId, ok) => {
+    clearTimeout(landedTimer.current);
+    setLanded({ zone: zoneId, ok, key: Date.now() });
+    landedTimer.current = setTimeout(() => setLanded(null), ok ? 900 : 650);
+    if (ok) navigator.vibrate?.(18); else navigator.vibrate?.([30, 40, 30]);
+  }, []);
+
+  // Magnetic pull: compatible zones scale/lean toward the pointer by proximity.
+  const magnet = useCallback((x, y, allowed) => {
+    const still = reduceMotion();
+    Object.entries(zoneRefs.current).forEach(([zoneId, el]) => {
+      if (!el) return;
+      if (x == null || !allowed?.includes(zoneId)) {
+        el.style.setProperty('--pull', '0');
+        el.style.setProperty('--lean-x', '0px');
+        el.style.setProperty('--lean-y', '0px');
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const distance = Math.hypot(x - cx, y - cy);
+      const pull = Math.max(0, Math.min(1, 1 - distance / 340));
+      el.style.setProperty('--pull', pull.toFixed(3));
+      el.style.setProperty('--lean-x', still ? '0px' : `${((x - cx) * pull * 0.08).toFixed(1)}px`);
+      el.style.setProperty('--lean-y', still ? '0px' : `${Math.max(-10, (y - cy) * pull * 0.08).toFixed(1)}px`);
+    });
+  }, []);
+
+  const endDrag = useCallback(() => {
+    setDragInfo(null);
+    setHoverZone(null);
+    magnet(null);
+    if (ghostRef.current) ghostRef.current.dataset.on = 'false';
+  }, [magnet]);
+
   const activate = useCallback((zoneId, id) => {
     const record = registry.current.get(id);
     if (!record) {
-      setMessage('That card is no longer available. Try dragging it again.');
-      return;
+      setMessage('That card is no longer on screen. Drag it again from the page.', 'error');
+      return false;
     }
     const callback = record.actions[zoneId];
+    const zoneTitle = zoneById(zoneId)?.title || zoneId;
     if (typeof callback !== 'function') {
-      const available = Object.keys(record.actions).join(', ');
-      setMessage(`Wrong Action Zone for ${record.label}. Use: ${available}.`);
-      return;
+      flash(zoneId, false);
+      setMessage(`Nothing happened — “${record.label}” can’t go in ${zoneTitle}. Drop it on ${zoneTitles(Object.keys(record.actions))}.`, 'error');
+      return false;
     }
     try {
       callback();
-      const zoneLabel = CANVAS_ZONES.find(zone => zone.id === zoneId)?.title || zoneId;
-      setMessage(`✓ ${zoneLabel}: ${record.label}`);
+      flash(zoneId, true);
+      setMessage(`${zoneTitle}: ${record.label}`, 'success');
+      return true;
     } catch (error) {
-      setMessage(`Couldn't complete action: ${error.message}`);
+      flash(zoneId, false);
+      setMessage(`${zoneTitle} didn’t complete: ${error.message}`, 'error');
+      return false;
     }
+  }, [flash, setMessage]);
+
+  // Start of any drag (mouse, touch or keyboard). Shared so every card behaves alike.
+  const beginDrag = useCallback((id, label, allowed, mode) => {
+    setDragInfo({ id, label, actions: allowed, mode });
+    setMessage(`Holding “${label}”. Drop it on ${zoneTitles(allowed)}.`, 'info');
+  }, [setMessage]);
+
+  const nativePreview = useCallback((event, label, allowed) => {
+    const el = previewRef.current;
+    if (!el || !event.dataTransfer?.setDragImage) return;
+    el.querySelector('strong').textContent = label;
+    el.querySelector('small').textContent = `→ ${zoneTitles(allowed)}`;
+    event.dataTransfer.setDragImage(el, 18, 18);
   }, []);
+
+  const moveGhost = useCallback((x, y, label, allowed) => {
+    const el = ghostRef.current;
+    if (!el) return;
+    if (label) {
+      el.querySelector('strong').textContent = label;
+      el.querySelector('small').textContent = `→ ${zoneTitles(allowed)}`;
+    }
+    el.dataset.on = 'true';
+    el.style.transform = `translate(${x + 14}px, ${y - 46}px)`;
+  }, []);
+
+  // While a native drag is active, follow the pointer for the magnet effect.
+  useEffect(() => {
+    if (!dragInfo || dragInfo.mode !== 'native') return undefined;
+    const onOver = event => magnet(event.clientX, event.clientY, dragInfo.actions);
+    document.addEventListener('dragover', onOver);
+    return () => document.removeEventListener('dragover', onOver);
+  }, [dragInfo, magnet]);
+
+  // Keyboard pickup: jump focus to the first compatible zone.
+  useEffect(() => {
+    if (!dragInfo || dragInfo.mode !== 'keyboard') return;
+    const first = dragInfo.actions.map(id => zoneRefs.current[id]).find(Boolean);
+    requestAnimationFrame(() => first?.focus());
+  }, [dragInfo]);
+
+  const cancelKeyboard = useCallback(() => {
+    setKeyboardCardId(null);
+    endDrag();
+    setMessage('Put the card back. Nothing changed.', 'idle');
+  }, [endDrag, setMessage]);
 
   const onDrop = useCallback((event, zoneId) => {
     event.preventDefault();
     event.stopPropagation();
-    const id = event.dataTransfer.getData('application/x-quiet-canvas')
-      || event.dataTransfer.getData('text/plain')
-      || keyboardCardId;
-    if (id) activate(zoneId, id);
-    setDragInfo(null);
-    setHoverZone(null);
-    setKeyboardCardId(null);
-  }, [activate, keyboardCardId]);
+    const raw = event.dataTransfer.getData('application/x-quiet-canvas')
+      || event.dataTransfer.getData('text/plain');
+    // Only cards from this app can trigger actions; dropped text, links or images are ignored.
+    if (raw && raw.startsWith(ID_PREFIX)) activate(zoneId, raw);
+    else setMessage('Only cards with a ⠿ grip can be dropped here.', 'error');
+    endDrag();
+  }, [activate, endDrag, setMessage]);
 
   const value = useMemo(() => ({
-    register,
-    setDragInfo,
-    setMessage,
-    keyboardCardId,
-    setKeyboardCardId,
-    activate,
-    setHoverZone,
-  }), [register, keyboardCardId, activate]);
+    register, setDragInfo, setMessage, keyboardCardId, setKeyboardCardId,
+    activate, setHoverZone, beginDrag, endDrag, magnet, moveGhost, nativePreview, cancelKeyboard,
+  }), [register, setMessage, keyboardCardId, activate, beginDrag, endDrag, magnet, moveGhost, nativePreview, cancelKeyboard]);
+
+  const holding = Boolean(dragInfo);
 
   return (
     <CanvasContext.Provider value={value}>
       {children}
-      <aside className="canvas-dock" aria-label="Canvas Protocol Action Zones">
+      <div ref={previewRef} className="canvas-preview" aria-hidden="true"><span>⠿</span><div><strong /><small /></div></div>
+      <div ref={ghostRef} className="canvas-ghost" data-on="false" aria-hidden="true"><span>⠿</span><div><strong /><small /></div></div>
+      <aside className={`canvas-dock ${holding ? 'canvas-dock-holding' : ''}`} aria-label="Action Zones">
         <div className="canvas-dock-head">
-          <strong>🎨 THE CANVAS PROTOCOL</strong>
-          <span>Drag → Drop → Done</span>
+          <strong>Action Zones</strong>
+          <span className={`canvas-dock-status canvas-status-${status.tone}`} role="status" aria-live="polite">{status.text}</span>
         </div>
         <div className="canvas-dock-zones">
-          {CANVAS_ZONES.map(zone => {
+          {CANVAS_ZONES.map((zone, index) => {
             const compatible = dragInfo?.actions.includes(zone.id);
+            const over = hoverZone === zone.id;
+            const landedHere = landed?.zone === zone.id;
+            const cls = [
+              'canvas-zone',
+              holding && compatible ? 'canvas-zone-ready' : '',
+              holding && !compatible ? 'canvas-zone-dim' : '',
+              over && compatible ? 'canvas-zone-over' : '',
+              over && holding && !compatible ? 'canvas-zone-reject' : '',
+              landedHere && landed.ok ? 'canvas-zone-landed' : '',
+              landedHere && !landed.ok ? 'canvas-zone-shake' : '',
+            ].join(' ');
             return (
               <div
-                key={zone.id}
+                key={zone.id + (landedHere ? landed.key : '')}
+                ref={el => { zoneRefs.current[zone.id] = el; }}
                 data-canvas-zone={zone.id}
-                tabIndex={0}
-                role="region"
-                aria-label={`Drop ${zone.help} here to ${zone.title.toLowerCase()}`}
-                className={`canvas-zone ${hoverZone === zone.id ? 'canvas-zone-over' : ''} ${dragInfo && !compatible ? 'canvas-zone-dim' : ''} ${compatible ? 'canvas-zone-ready' : ''}`}
-                onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setHoverZone(zone.id); }}
-                onDragLeave={() => setHoverZone(null)}
+                tabIndex={keyboardCardId ? 0 : -1}
+                role="button"
+                aria-disabled={!keyboardCardId}
+                aria-label={`${zone.title} zone. Accepts: ${zone.help}.${keyboardCardId ? ' Press Enter to drop the held card here.' : ''}`}
+                className={cls}
+                onDragEnter={event => { event.preventDefault(); setHoverZone(zone.id); }}
+                onDragOver={event => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = 'move';
+                  if (hoverZone !== zone.id) setHoverZone(zone.id);
+                }}
+                onDragLeave={event => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) setHoverZone(null);
+                }}
                 onDrop={event => onDrop(event, zone.id)}
                 onKeyDown={event => {
-                  if ((event.key === 'Enter' || event.key === ' ') && keyboardCardId) {
+                  if (!keyboardCardId) return;
+                  const zones = Object.values(zoneRefs.current).filter(Boolean);
+                  if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
                     activate(zone.id, keyboardCardId);
                     setKeyboardCardId(null);
+                    endDrag();
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    cancelKeyboard();
+                  } else if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+                    event.preventDefault();
+                    const step = event.key === 'ArrowRight' ? 1 : -1;
+                    zones[(index + step + zones.length) % zones.length]?.focus();
                   }
                 }}
+                onFocus={() => keyboardCardId && setHoverZone(zone.id)}
+                onBlur={() => setHoverZone(current => (current === zone.id ? null : current))}
               >
-                <span className="canvas-zone-icon" aria-hidden="true">{zone.icon}</span>
+                <span className="canvas-zone-icon" aria-hidden="true">{landedHere && landed.ok ? '✓' : zone.icon}</span>
                 <span className="canvas-zone-name">{zone.title}</span>
+                <span className="canvas-zone-hint" aria-hidden="true">
+                  {holding && compatible ? `Drop to ${zone.verb}` : zone.help}
+                </span>
               </div>
             );
           })}
         </div>
-        <div className="canvas-dock-status" role="status" aria-live="polite">{message}</div>
       </aside>
     </CanvasContext.Provider>
   );
@@ -131,7 +266,7 @@ export function CanvasProvider({ children }) {
 function useCanvasRegistration(label, actions) {
   const context = useContext(CanvasContext);
   const reactId = useId();
-  const id = `tqp-${reactId.replace(/[^a-zA-Z0-9-]/g, '')}`;
+  const id = `${ID_PREFIX}${reactId.replace(/[^a-zA-Z0-9-]/g, '')}`;
   const actionRef = useRef(actions);
   actionRef.current = actions;
   const record = useMemo(() => ({
@@ -142,45 +277,78 @@ function useCanvasRegistration(label, actions) {
   return { context, id };
 }
 
-
-// Native HTML drag-and-drop works on desktop. This pointer bridge adds actual
-// drag-to-zone gestures on touchscreens rather than requiring any tap buttons.
-function touchDragStart(event, context, id, label, actions, disabled = false) {
+// Touch / pen bridge: real drag-to-zone gestures, with a ghost under the finger.
+function touchDragStart(event, context, id, label, allowed, disabled = false) {
   if (disabled || event.pointerType === 'mouse' || !context) return;
   const startX = event.clientX;
   const startY = event.clientY;
   let moved = false;
-  const allowed = Object.keys(actions);
   const findZone = (x, y) => document.elementFromPoint(x, y)?.closest('[data-canvas-zone]')?.dataset.canvasZone;
+  const cleanup = () => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onEnd);
+    document.removeEventListener('pointercancel', onCancel);
+  };
   const onMove = moveEvent => {
     const distance = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY);
-    if (distance < 12 && !moved) return;
-    moved = true;
+    if (distance < 10 && !moved) return;
     moveEvent.preventDefault();
-    context.setDragInfo({ label, actions: allowed });
+    if (!moved) context.beginDrag(id, label, allowed, 'touch');
+    context.moveGhost(moveEvent.clientX, moveEvent.clientY, moved ? null : label, allowed);
+    moved = true;
+    context.magnet(moveEvent.clientX, moveEvent.clientY, allowed);
     context.setHoverZone(findZone(moveEvent.clientX, moveEvent.clientY) || null);
   };
   const onEnd = endEvent => {
-    document.removeEventListener('pointermove', onMove);
-    document.removeEventListener('pointerup', onEnd);
-    document.removeEventListener('pointercancel', onCancel);
+    cleanup();
     if (moved) {
       const zone = findZone(endEvent.clientX, endEvent.clientY);
       if (zone) context.activate(zone, id);
+      else context.setMessage('Dropped outside the zones. Nothing changed.', 'idle');
     }
-    context.setHoverZone(null);
-    context.setDragInfo(null);
+    context.endDrag();
   };
-  const onCancel = () => {
-    document.removeEventListener('pointermove', onMove);
-    document.removeEventListener('pointerup', onEnd);
-    document.removeEventListener('pointercancel', onCancel);
-    context.setHoverZone(null);
-    context.setDragInfo(null);
-  };
+  const onCancel = () => { cleanup(); context.endDrag(); };
   document.addEventListener('pointermove', onMove, { passive: false });
   document.addEventListener('pointerup', onEnd);
   document.addEventListener('pointercancel', onCancel);
+}
+
+function useDraggable({ label, actions, disabled = false, stopPropagation = false }) {
+  const { context, id } = useCanvasRegistration(label, actions);
+  const allowed = Object.keys(actions);
+  const held = context?.keyboardCardId === id;
+  const handlers = {
+    draggable: !disabled,
+    tabIndex: disabled ? -1 : 0,
+    'aria-pressed': held,
+    'data-held': held ? 'true' : undefined,
+    onPointerDown: event => touchDragStart(event, context, id, label, allowed, disabled),
+    onDragStart: event => {
+      if (disabled) { event.preventDefault(); return; }
+      if (stopPropagation) event.stopPropagation();
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('application/x-quiet-canvas', id);
+      event.dataTransfer.setData('text/plain', id);
+      context?.nativePreview(event, label, allowed);
+      context?.beginDrag(id, label, allowed, 'native');
+    },
+    onDragEnd: event => {
+      if (event.dataTransfer?.dropEffect === 'none') context?.setMessage('Dropped outside the zones. Nothing changed.', 'idle');
+      context?.endDrag();
+    },
+    onKeyDown: event => {
+      if (disabled || !context) return;
+      if (event.key === 'Escape' && held) { event.preventDefault(); context.cancelKeyboard(); return; }
+      if (event.key === ' ' || event.key === 'Enter') {
+        event.preventDefault();
+        context.setKeyboardCardId(id);
+        context.beginDrag(id, label, allowed, 'keyboard');
+        context.setMessage(`Picked up “${label}”. Arrow keys move between zones, Enter drops, Esc cancels.`, 'info');
+      }
+    },
+  };
+  return { handlers, allowed };
 }
 
 export function CanvasAction({
@@ -198,44 +366,31 @@ export function CanvasAction({
   const text = label || title || (typeof children === 'string' ? children : 'Action card');
   const actions = { [actionType]: () => {
     if (type === 'submit' && !onAction) {
-      tokenRef.current?.closest('form')?.requestSubmit();
+      const form = tokenRef.current?.closest('form');
+      if (form && !form.checkValidity()) {
+        form.reportValidity();
+        throw new Error('fill in the required fields first');
+      }
+      form?.requestSubmit();
     } else {
       onAction?.();
     }
   }};
-  const { context, id } = useCanvasRegistration(text, actions);
-  const zoneTitle = CANVAS_ZONES.find(z => z.id === actionType)?.title || actionType;
+  const { handlers } = useDraggable({ label: text, actions, disabled });
+  const zoneTitle = zoneById(actionType)?.title || actionType;
 
   return (
     <div
       {...props}
+      {...handlers}
       ref={tokenRef}
       className={`canvas-action canvas-draggable ${className} ${disabled ? 'canvas-disabled' : ''}`}
-      role="listitem"
-      tabIndex={disabled ? -1 : 0}
-      draggable={!disabled}
-      aria-label={`${text}. Drag to ${zoneTitle} Action Zone`}
-      title={`Drag to ${zoneTitle} Action Zone`}
-      onPointerDown={event => touchDragStart(event, context, id, text, actions, disabled)}
-      onDragStart={event => {
-        if (disabled) { event.preventDefault(); return; }
-        event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('application/x-quiet-canvas', id);
-        event.dataTransfer.setData('text/plain', id);
-        context?.setDragInfo({ label: text, actions: [actionType] });
-        context?.setMessage(`Dragging ${text}. Drop it in ${zoneTitle}.`);
-      }}
-      onDragEnd={() => context?.setDragInfo(null)}
-      onKeyDown={event => {
-        if ((event.key === ' ' || event.key === 'Enter') && !disabled) {
-          event.preventDefault();
-          context?.setKeyboardCardId(id);
-          context?.setMessage(`Picked up ${text}. Focus the ${zoneTitle} zone and press Enter to drop.`);
-        }
-      }}
+      role="button"
+      aria-label={`${text}. Drag to the ${zoneTitle} zone, or press Enter to pick up`}
+      title={`Drag to ${zoneTitle}`}
     >
       <span className="canvas-action-label">{children}</span>
-      <span className="canvas-drag-hint">⠿ drag to {zoneTitle.toLowerCase()}</span>
+      <span className="canvas-drag-hint" aria-hidden="true">⠿ drag to {zoneTitle.toLowerCase()}</span>
     </div>
   );
 }
@@ -246,39 +401,22 @@ export function CanvasPlaceToken({ place, onSave, onRemove, onCompare, onBook, c
   if (onRemove) actions.remove = onRemove;
   if (onCompare) actions.compare = onCompare;
   if (onBook) actions.book = onBook;
-  const { context, id } = useCanvasRegistration(place.name, actions);
-  const allowed = Object.keys(actions);
+  const { handlers, allowed } = useDraggable({ label: place.name, actions, stopPropagation: true });
   return (
     <div
+      {...handlers}
       className={`canvas-place-card canvas-draggable ${className}`}
-      draggable
-      tabIndex={0}
-      role="listitem"
-      aria-label={`Drag ${place.name} to an Action Zone: ${allowed.join(', ')}`}
-      onPointerDown={event => touchDragStart(event, context, id, place.name, actions)}
-      onDragStart={event => {
-        event.stopPropagation();
-        event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('application/x-quiet-canvas', id);
-        event.dataTransfer.setData('text/plain', id);
-        context?.setDragInfo({ label: place.name, actions: allowed });
-        context?.setMessage(`Dragging ${place.name}. Drop in ${allowed.join(', ')}.`);
-      }}
-      onDragEnd={() => context?.setDragInfo(null)}
-      onKeyDown={event => {
-        if (event.key === ' ' || event.key === 'Enter') {
-          event.preventDefault();
-          context?.setKeyboardCardId(id);
-          context?.setMessage(`Picked up ${place.name}. Focus an Action Zone and press Enter to drop.`);
-        }
-      }}
+      role="button"
+      aria-label={`${place.name}. Drag to ${zoneTitles(allowed)}, or press Enter to pick up`}
     >
       <span className="canvas-place-grip" aria-hidden="true">⠿</span>
       <div>
         <strong>{place.name}</strong>
         <small>{place.area} · {place.cost === 0 ? 'Free' : place.cost == null ? 'Price unverified' : `₹${place.cost}/visit`}</small>
       </div>
-      <span className="canvas-place-tag">DRAG CARD</span>
+      <span className="canvas-place-tag" aria-hidden="true">
+        {allowed.map(id => <i key={id} title={zoneById(id)?.title}>{zoneById(id)?.icon}</i>)}
+      </span>
     </div>
   );
 }

@@ -565,7 +565,7 @@ function Home({ activity, onActivity, go, openDetail, spaces, onStartGuided, onO
                   {p.liveStatus && (
                     <div className="live-meter-badge">
                       <span className="live-pulse"></span>
-                      <span>{p.liveStatus.freeDesks} seats free</span>
+                      <span>{p.liveStatus.freeDesks} seats (sample)</span>
                     </div>
                   )}
                 </div>
@@ -811,7 +811,7 @@ function Step02Results({
                 {place.liveStatus && (
                   <div className="live-meter-badge">
                     <span className="live-pulse"></span>
-                    <span>{place.liveStatus.freeDesks} seats free • {place.liveStatus.noiseDb} dB</span>
+                    <span>{place.liveStatus.freeDesks} seats (sample) • {place.liveStatus.noiseDb} dB</span>
                   </div>
                 )}
               </div>
@@ -1072,7 +1072,7 @@ function ExploreSpaces({
       <div className="section-head">
         <span className="eyebrow">WORKSPACE DISCOVERY · HYDERABAD</span>
         <h1>Explore Spaces & Nearby Map</h1>
-        <p>Interactive discovery with photo switchers, distance, live status, and in-app routes.</p>
+        <p>Interactive discovery with photo switchers, distance, sample occupancy, and in-app routes. Seat and noise figures are illustrative demo data.</p>
       </div>
 
       <div className="explore-layout">
@@ -1257,7 +1257,7 @@ function ExploreSpaces({
                     {place.liveStatus && (
                       <div className="live-meter-badge">
                         <span className="live-pulse"></span>
-                        <span>{place.liveStatus.freeDesks} seats free • {place.liveStatus.noiseDb} dB ({place.liveStatus.noiseDesc})</span>
+                        <span>{place.liveStatus.freeDesks} seats (sample) • {place.liveStatus.noiseDb} dB ({place.liveStatus.noiseDesc})</span>
                       </div>
                     )}
 
@@ -1543,7 +1543,7 @@ function NavigatorModal({ place, origin, hasUserLocation, onClose, onBookDesk })
                   <small className="tiny" style={{ fontWeight: 700 }}>LIVE SPACE STATUS</small>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '0.86rem' }}>
                     <span>Occupancy:</span>
-                    <strong>{place.liveStatus.occupancy}% ({place.liveStatus.freeDesks} seats free)</strong>
+                    <strong>{place.liveStatus.occupancy}% ({place.liveStatus.freeDesks} seats, sample data)</strong>
                   </div>
                  
                 </div>
@@ -1685,9 +1685,9 @@ function BookingModal({ place, onClose, onSaveBooking }) {
           </>
         ) : (
           <div>
-            <span className="eyebrow" style={{ color: '#27ae60' }}>✓ RESERVATION CONFIRMED</span>
-            <h2 style={{ color: '#173c38', margin: '6px 0 10px' }}>Your Pass is Ready!</h2>
-            <p>Show this digital pass at the entrance desk.</p>
+            <span className="eyebrow" style={{ color: '#27ae60' }}>✓ DEMO RESERVATION SAVED</span>
+            <h2 style={{ color: '#173c38', margin: '6px 0 10px' }}>Your demo pass is ready</h2>
+            <p>This is a prototype reservation stored on this device only. The venue has not been contacted — check with them directly before visiting.</p>
 
             <div className="ticket-card">
               <div className="ticket-header">
@@ -1696,7 +1696,7 @@ function BookingModal({ place, onClose, onSaveBooking }) {
                   <div style={{ fontSize: '1.4rem', fontWeight: 800 }}>{confirmedTicket.bookingId}</div>
                 </div>
                 <div className="ticket-qr-mock">
-                  <span>QR PASS<br />VERIFIED</span>
+                  <span>DEMO<br />PASS</span>
                 </div>
               </div>
 
@@ -1727,8 +1727,8 @@ function BookingModal({ place, onClose, onSaveBooking }) {
               <Button variant="outline" onClick={onClose}>
                 Done
               </Button>
-              <Button onClick={() => alert('Pass saved to your browser! You can access it anytime from the top bar.')}>
-                Download Pass PDF
+              <Button variant="outline" onClick={() => window.print()}>
+                Print pass
               </Button>
             </div>
           </div>
@@ -1951,7 +1951,7 @@ function DetailView({
               {place.liveStatus && (
                 <div className="live-meter-badge">
                   <span className="live-pulse"></span>
-                  <span>{place.liveStatus.freeDesks} seats free • {place.liveStatus.noiseDb} dB</span>
+                  <span>{place.liveStatus.freeDesks} seats (sample) • {place.liveStatus.noiseDb} dB</span>
                 </div>
               )}
             </div>
@@ -2654,8 +2654,6 @@ export default function App() {
           onBookDesk={place => setBookingPlace(place)}
           onOpenNavigator={place => setNavigatorPlace(place)}
           onOpenGallery={openGallery}
-          compareList={compareList}
-          onCompare={toggleCompare}
         />
       )}
 
